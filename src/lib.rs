@@ -96,8 +96,185 @@ impl<N: Num + WrappingAdd> std::ops::Add for Poui<N> {
     }
 }
 
-impl<F: Float + 'static, N: Num + WrappingAdd + AsPrimitive<F> + Bounded> AsPrimitive<F>
-    for Poui<N>
+pub trait Widen {
+    type Widened;
+    fn widen(self) -> Self::Widened;
+}
+
+impl Widen for u8 {
+    type Widened = u16;
+    fn widen(self) -> Self::Widened {
+        self as u16
+    }
+}
+
+impl Widen for u16 {
+    type Widened = u32;
+    fn widen(self) -> Self::Widened {
+        self as u32
+    }
+}
+
+impl Widen for u32 {
+    type Widened = u64;
+    fn widen(self) -> Self::Widened {
+        self as u64
+    }
+}
+
+impl Widen for u64 {
+    type Widened = u128;
+    fn widen(self) -> Self::Widened {
+        self as u128
+    }
+}
+
+impl Widen for i8 {
+    type Widened = i16;
+    fn widen(self) -> Self::Widened {
+        self as i16
+    }
+}
+
+impl Widen for i16 {
+    type Widened = i32;
+    fn widen(self) -> Self::Widened {
+        self as i32
+    }
+}
+
+impl Widen for i32 {
+    type Widened = i64;
+    fn widen(self) -> Self::Widened {
+        self as i64
+    }
+}
+
+impl Widen for i64 {
+    type Widened = i128;
+    fn widen(self) -> Self::Widened {
+        self as i128
+    }
+}
+
+impl Widen for u128 {
+    type Widened = u128;
+    fn widen(self) -> Self::Widened {
+        self
+    }
+}
+
+impl Widen for i128 {
+    type Widened = i128;
+    fn widen(self) -> Self::Widened {
+        self
+    }
+}
+
+pub trait Shorten {
+    type Shortened;
+    fn shorten(self) -> Self::Shortened;
+}
+
+impl Shorten for u16 {
+    type Shortened = u8;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 8) as u8
+    }
+}
+
+impl Shorten for u32 {
+    type Shortened = u16;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 16) as u16
+    }
+}
+
+impl Shorten for u64 {
+    type Shortened = u32;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 32) as u32
+    }
+}
+
+impl Shorten for u128 {
+    type Shortened = u64;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 64) as u64
+    }
+}
+
+impl Shorten for i16 {
+    type Shortened = i8;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 8) as i8
+    }
+}
+
+impl Shorten for i32 {
+    type Shortened = i16;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 16) as i16
+    }
+}
+
+impl Shorten for i64 {
+    type Shortened = i32;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 32) as i32
+    }
+}
+
+impl Shorten for i128 {
+    type Shortened = i64;
+    fn shorten(self) -> Self::Shortened {
+        (self >> 64) as i64
+    }
+}
+
+impl Shorten for u8 {
+    type Shortened = u8;
+    fn shorten(self) -> Self::Shortened {
+        self
+    }
+}
+
+impl Shorten for i8 {
+    type Shortened = i8;
+    fn shorten(self) -> Self::Shortened {
+        self
+    }
+}
+
+/// Multiplication of `Poui` values.
+///
+/// This is implemented using fixed-point arithmetic. The product of two `Poui`
+/// values is itself a `Poui` value, but multiplying the underlying numbers
+/// together could overflow the underlying number type. To avoid this, the
+/// underlying numbers are widened to a larger type before multiplication, e.g.
+/// `u8` is widened to `u16`. After multiplying the widened numbers, the result
+/// is shortened back to the original type, e.g. `u16` is shortened to `u8`,
+/// taking the 8 most significant bits of the result.
+///
+/// This method provably avoids overflow, but it may lose precision. For
+/// example, multiplying `Poui(1u8)` by `Poui(1u8)` results in `Poui(0u8)`,
+/// because the product is `1/512`, which is rounded down to `0`.
+impl<N, M> std::ops::Mul for Poui<N>
+where
+    N: Num + WrappingAdd + Widen<Widened = M>,
+    M: Num + WrappingAdd + std::ops::Mul + Shorten<Shortened = N>,
+{
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Poui((self.0.widen() * rhs.0.widen()).shorten())
+    }
+}
+
+impl<F, N> AsPrimitive<F> for Poui<N>
+where
+    F: Float + 'static,
+    N: Num + WrappingAdd + AsPrimitive<F> + Bounded,
 {
     /// Converts the point on the unit interval to a floating-point number.
     ///
@@ -257,6 +434,145 @@ fn wraparound_u128() {
     let a = Poui(u128::MAX);
     let b = Poui(1u128);
     assert_eq!(a + b, Poui(0u128));
+}
+#[test]
+fn half_times_half_u8() {
+    let a = Poui(128u8);
+    let b = Poui(128u8);
+    assert_eq!(a * b, Poui(64u8));
+}
+
+#[test]
+fn half_times_half_u16() {
+    let a = Poui(32768u16);
+    let b = Poui(32768u16);
+    assert_eq!(a * b, Poui(16384u16));
+}
+
+#[test]
+fn half_times_half_u32() {
+    let a = Poui(2147483648u32);
+    let b = Poui(2147483648u32);
+    assert_eq!(a * b, Poui(1073741824u32));
+}
+
+#[test]
+fn half_times_half_u64() {
+    let a = Poui(9223372036854775808u64);
+    let b = Poui(9223372036854775808u64);
+    assert_eq!(a * b, Poui(4611686018427387904u64));
+}
+
+#[test]
+fn zero_times_one_u8() {
+    let a = Poui(0u8);
+    let b = Poui(255u8);
+    assert_eq!(a * b, Poui(0u8));
+}
+
+#[test]
+fn zero_times_one_u16() {
+    let a = Poui(0u16);
+    let b = Poui(65535u16);
+    assert_eq!(a * b, Poui(0u16));
+}
+
+#[test]
+fn zero_times_one_u32() {
+    let a = Poui(0u32);
+    let b = Poui(4294967295u32);
+    assert_eq!(a * b, Poui(0u32));
+}
+
+#[test]
+fn zero_times_one_u64() {
+    let a = Poui(0u64);
+    let b = Poui(18446744073709551615u64);
+    assert_eq!(a * b, Poui(0u64));
+}
+
+#[test]
+fn one_sixteenth_times_one_sixteenth_u8() {
+    let a = Poui(16u8);
+    let b = Poui(16u8);
+    assert_eq!(a * b, Poui(1u8));
+}
+
+#[test]
+fn one_sixteenth_times_one_sixteenth_u16() {
+    let a = Poui(4096u16);
+    let b = Poui(4096u16);
+    assert_eq!(a * b, Poui(256u16));
+}
+
+#[test]
+fn one_sixteenth_times_one_sixteenth_u32() {
+    let a = Poui(268435456u32);
+    let b = Poui(268435456u32);
+    assert_eq!(a * b, Poui(16777216u32));
+}
+
+#[test]
+fn one_sixteenth_times_one_sixteenth_u64() {
+    let a = Poui(1152921504606846976u64);
+    let b = Poui(1152921504606846976u64);
+    assert_eq!(a * b, Poui(72057594037927936u64));
+}
+
+#[test]
+fn epsilon_times_epsilon_u8() {
+    let a = Poui(1u8);
+    let b = Poui(1u8);
+    assert_eq!(a * b, Poui(0u8));
+}
+
+#[test]
+fn epsilon_times_epsilon_u16() {
+    let a = Poui(1u16);
+    let b = Poui(1u16);
+    assert_eq!(a * b, Poui(0u16));
+}
+
+#[test]
+fn epsilon_times_epsilon_u32() {
+    let a = Poui(1u32);
+    let b = Poui(1u32);
+    assert_eq!(a * b, Poui(0u32));
+}
+
+#[test]
+fn epsilon_times_epsilon_u64() {
+    let a = Poui(1u64);
+    let b = Poui(1u64);
+    assert_eq!(a * b, Poui(0u64));
+}
+
+#[test]
+fn epsilon_times_epsilon_i8() {
+    let a = Poui(1i8);
+    let b = Poui(1i8);
+    assert_eq!(a * b, Poui(0i8));
+}
+
+#[test]
+fn epsilon_times_epsilon_i16() {
+    let a = Poui(1i16);
+    let b = Poui(1i16);
+    assert_eq!(a * b, Poui(0i16));
+}
+
+#[test]
+fn epsilon_times_epsilon_i32() {
+    let a = Poui(1i32);
+    let b = Poui(1i32);
+    assert_eq!(a * b, Poui(0i32));
+}
+
+#[test]
+fn epsilon_times_epsilon_i64() {
+    let a = Poui(1i64);
+    let b = Poui(1i64);
+    assert_eq!(a * b, Poui(0i64));
 }
 
 #[test]

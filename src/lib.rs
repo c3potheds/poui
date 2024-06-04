@@ -1,3 +1,6 @@
+use num_traits::AsPrimitive;
+use num_traits::Bounded;
+use num_traits::Float;
 use num_traits::Num;
 use num_traits::WrappingAdd;
 
@@ -37,7 +40,10 @@ use num_traits::WrappingAdd;
 ///   t-value greater than 1 or less than 0
 ///
 /// `Poui` uses *fixed-point arithmetic* to represent points on the unit
-/// interval to avoid these problems.
+/// interval to avoid these problems. Points outside the unit interval are
+/// *unrepresentable* in `Poui`, which means that you can't accidentally
+/// go "out of bounds" and introduce bugs. The arithmetic operations are
+/// well-defined and consistent with basic integer arithmetic.
 ///
 /// # Examples
 ///
@@ -66,20 +72,20 @@ use num_traits::WrappingAdd;
 /// ```
 ///
 /// If the underlying number type is a signed integer, then `Poui` represents
-/// points on the interval [-0.5, 0.5) instead of [0, 1). This can be useful for
+/// points on the interval [-1.0, 1.0) instead of [0, 1). This can be useful for
 /// representing cartesian coordinates of points on a unit circle, or for
 /// representing angles in a symmetric way.
 ///
 /// ```rust
 /// use poui::Poui;
 ///
-/// // 0.25 + 0.25 = -0.5
+/// // 0.5 + 0.5 = -1.0
 /// let a = Poui(64i8);
 /// let b = Poui(64i8);
 /// let c = a + b;
 /// assert_eq!(c, Poui(-128i8));
 /// ```
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Poui<N: Num + WrappingAdd>(pub N);
 
 impl<N: Num + WrappingAdd> std::ops::Add for Poui<N> {
@@ -87,6 +93,29 @@ impl<N: Num + WrappingAdd> std::ops::Add for Poui<N> {
 
     fn add(self, rhs: Self) -> Self::Output {
         Poui(self.0.wrapping_add(&rhs.0))
+    }
+}
+
+impl<F: Float + 'static, N: Num + WrappingAdd + AsPrimitive<F> + Bounded> AsPrimitive<F>
+    for Poui<N>
+{
+    /// Converts the point on the unit interval to a floating-point number.
+    ///
+    /// This is useful for converting a `Poui` to a floating-point number for
+    /// use in floating-point arithmetic.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use poui::Poui;
+    /// use num_traits::AsPrimitive;
+    ///
+    /// let a = Poui(128u8);
+    /// let f: f32 = a.as_();
+    /// assert_eq!(f, 0.5);
+    /// ```
+    fn as_(self) -> F {
+        N::as_(self.0) / (N::as_(N::max_value()) + N::as_(N::one()))
     }
 }
 
@@ -126,41 +155,6 @@ fn basic_arithmetic_i128() {
 }
 
 #[test]
-fn wraparound_i8() {
-    let a = Poui(i8::MAX);
-    let b = Poui(1i8);
-    assert_eq!(a + b, Poui(i8::MIN));
-}
-
-#[test]
-fn wraparound_i16() {
-    let a = Poui(i16::MAX);
-    let b = Poui(1i16);
-    assert_eq!(a + b, Poui(i16::MIN));
-}
-
-#[test]
-fn wraparound_i32() {
-    let a = Poui(i32::MAX);
-    let b = Poui(1i32);
-    assert_eq!(a + b, Poui(i32::MIN));
-}
-
-#[test]
-fn wraparound_i64() {
-    let a = Poui(i64::MAX);
-    let b = Poui(1i64);
-    assert_eq!(a + b, Poui(i64::MIN));
-}
-
-#[test]
-fn wraparound_i128() {
-    let a = Poui(i128::MAX);
-    let b = Poui(1i128);
-    assert_eq!(a + b, Poui(i128::MIN));
-}
-
-#[test]
 fn basic_arithmetic_u8() {
     let a = Poui(1u8);
     let b = Poui(2u8);
@@ -196,6 +190,41 @@ fn basic_arithmetic_u128() {
 }
 
 #[test]
+fn wraparound_i8() {
+    let a = Poui(i8::MAX);
+    let b = Poui(1i8);
+    assert_eq!(a + b, Poui(i8::MIN));
+}
+
+#[test]
+fn wraparound_i16() {
+    let a = Poui(i16::MAX);
+    let b = Poui(1i16);
+    assert_eq!(a + b, Poui(i16::MIN));
+}
+
+#[test]
+fn wraparound_i32() {
+    let a = Poui(i32::MAX);
+    let b = Poui(1i32);
+    assert_eq!(a + b, Poui(i32::MIN));
+}
+
+#[test]
+fn wraparound_i64() {
+    let a = Poui(i64::MAX);
+    let b = Poui(1i64);
+    assert_eq!(a + b, Poui(i64::MIN));
+}
+
+#[test]
+fn wraparound_i128() {
+    let a = Poui(i128::MAX);
+    let b = Poui(1i128);
+    assert_eq!(a + b, Poui(i128::MIN));
+}
+
+#[test]
 fn wraparound_u8() {
     let a = Poui(u8::MAX);
     let b = Poui(1u8);
@@ -214,4 +243,46 @@ fn wraparound_u32() {
     let a = Poui(u32::MAX);
     let b = Poui(1u32);
     assert_eq!(a + b, Poui(0u32));
+}
+
+#[test]
+fn wraparound_u64() {
+    let a = Poui(u64::MAX);
+    let b = Poui(1u64);
+    assert_eq!(a + b, Poui(0u64));
+}
+
+#[test]
+fn wraparound_u128() {
+    let a = Poui(u128::MAX);
+    let b = Poui(1u128);
+    assert_eq!(a + b, Poui(0u128));
+}
+
+#[test]
+fn convert_to_f32() {
+    let a = Poui(128u8);
+    let f: f32 = a.as_();
+    assert_eq!(f, 0.5);
+}
+
+#[test]
+fn convert_to_f64() {
+    let a = Poui(128u8);
+    let f: f64 = a.as_();
+    assert_eq!(f, 0.5);
+}
+
+#[test]
+fn convert_to_f32_signed() {
+    let a = Poui(64i8);
+    let f: f32 = a.as_();
+    assert_eq!(f, 0.5);
+}
+
+#[test]
+fn convert_to_f64_signed() {
+    let a = Poui(64i8);
+    let f: f64 = a.as_();
+    assert_eq!(f, 0.5);
 }
